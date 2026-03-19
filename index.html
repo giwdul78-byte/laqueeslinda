@@ -2143,36 +2143,145 @@ function submitOrder(){
     pago: pago
   };
   
-  console.log('📝 Guardando pedido en Firebase:', order);
+  console.log('📝 Guardando pedido:', order);
   
-  // Guardar SOLO en Firebase
-  if(!window.db){
-    showToast('❌ Error: Firebase no inicializado');
-    console.error('❌ Firebase no disponible');
-    return;
-  }
-  
-  // Mostrar loading
-  showToast('⏳ Guardando pedido...');
-  
-  db.collection("pedidos").add(order)
-    .then((docRef) => {
-      console.log('✅ Pedido guardado en Firebase con ID:', docRef.id);
-      showToast('✅ ¡Pedido guardado correctamente!');
-      
-      // Vaciar carrito y mostrar éxito
-      document.getElementById('orderFormView').classList.remove('visible');
-      document.getElementById('orderSuccess').classList.add('visible');
-      
-      // Vaciar carrito después de 2 segundos
-      setTimeout(() => {
-        resetCart();
-      }, 2000);
-    })
-    .catch((error) => {
-      console.error('❌ Error guardando en Firebase:', error);
-      showToast('❌ Error al guardar: ' + error.message);
+  // Guardar en localStorage
+  guardarPedidoEnLocal(order);
+}
+
+// ========================================
+// CONFIGURACIÓN GOOGLE DRIVE
+// ========================================
+// ========================================
+// CONFIGURACIÓN API NETLIFY
+// ========================================
+const API_URL = "/.netlify/functions/guardar-pedido";
+
+// ========================================
+// GUARDAR PEDIDO EN SERVIDOR NETLIFY
+// ========================================
+async function guardarPedidoEnLocal(order){
+  try {
+    // Guardar en servidor Netlify
+    console.log('📤 Guardando pedido en servidor...');
+    
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'guardar_pedido',
+        pedido: order
+      })
     });
+
+    const result = await response.json();
+    
+    if (result.success) {
+      console.log('✅ Pedido guardado en servidor:', result.filename);
+    } else {
+      console.warn('⚠️ Error en servidor:', result.error);
+    }
+    
+    // También guardar en localStorage como backup
+    let orders = JSON.parse(localStorage.getItem('laqueeeslinda_orders')) || [];
+    orders.push(order);
+    localStorage.setItem('laqueeeslinda_orders', JSON.stringify(orders));
+    console.log('✅ Pedido guardado en localStorage. Total:', orders.length);
+    
+    mostrarExito();
+  } catch(e) {
+    console.error('❌ Error guardando pedido:', e);
+    
+    // Guardar solo en localStorage si falla el servidor
+    let orders = JSON.parse(localStorage.getItem('laqueeeslinda_orders')) || [];
+    orders.push(order);
+    localStorage.setItem('laqueeeslinda_orders', JSON.stringify(orders));
+    
+    showToast('✅ Pedido guardado (en modo offline)');
+    mostrarExito();
+  }
+}
+
+// ========================================
+// GUARDAR IMAGEN EN SERVIDOR NETLIFY
+// ========================================
+async function guardarImagenEnServidor(base64Data, filename) {
+  try {
+    if (!API_URL) {
+      console.warn('API no configurada');
+      return false;
+    }
+    
+    console.log('📤 Subiendo imagen al servidor...');
+    
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'guardar_imagen',
+        base64: base64Data,
+        filename: filename
+      })
+    });
+
+    const result = await response.json();
+    
+    if (result.success) {
+      console.log('✅ Imagen guardada en servidor:', result.filename);
+      showToast('✅ Imagen guardada correctamente');
+      return true;
+    } else {
+      console.warn('⚠️ Error guardando imagen:', result.error);
+      showToast('⚠️ Error al guardar imagen');
+      return false;
+    }
+  } catch(error) {
+    console.error('❌ Error:', error.message);
+    showToast('❌ Error al subir imagen');
+    return false;
+  }
+}
+
+// ========================================
+// CARGAR PEDIDOS DEL SERVIDOR
+// ========================================
+async function cargarPedidosDelServidor() {
+  try {
+    console.log('📋 Cargando pedidos del servidor...');
+    
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'obtener_pedidos'
+      })
+    });
+
+    const result = await response.json();
+    
+    if (result.success) {
+      console.log('✅ Pedidos cargados del servidor:', result.total);
+      return result.pedidos;
+    } else {
+      console.warn('⚠️ Error cargando pedidos:', result.error);
+      return [];
+    }
+  } catch(error) {
+    console.error('❌ Error:', error.message);
+    return [];
+  }
+}
+
+function mostrarExito(){
+  document.getElementById('orderFormView').classList.remove('visible');
+  document.getElementById('orderSuccess').classList.add('visible');
+  showToast('✅ ¡Pedido realizado correctamente!');
 }
 
 function resetCart(){
@@ -2427,139 +2536,113 @@ function switchAdminTab(tab, el){
 
 // ADMIN ORDERS
 function loadAdminOrders(){
-  console.log('📋 Cargando pedidos de Firebase...');
+  console.log('📋 Intentando cargar pedidos...');
   
-  if(!window.db){
-    showToast('❌ Error: Firebase no inicializado');
-    document.getElementById('adminOrdersEmpty').style.display = 'block';
-    return;
+  // Intentar cargar del servidor primero
+  fetch('/api/orders')
+    .then(res => res.json())
+    .then(data => {
+      if(data.success){
+        console.log('✅ Pedidos cargados del servidor:', data.count);
+        mostrarPedidos(data.orders);
+      } else {
+        console.warn('⚠️ Error en servidor, cargando del localStorage');
+        cargarDelLocalStorage();
+      }
+    })
+    .catch(err => {
+      console.warn('⚠️ Servidor no disponible, cargando del localStorage:', err.message);
+      cargarDelLocalStorage();
+    });
+  
+  function cargarDelLocalStorage(){
+    const orders = JSON.parse(localStorage.getItem('laqueeeslinda_orders')) || [];
+    console.log('📋 Pedidos cargados localmente. Total:', orders.length);
+    mostrarPedidos(orders);
   }
   
-  const empty = document.getElementById('adminOrdersEmpty');
-  const list = document.getElementById('adminOrdersList');
-  
-  // Mostrar loading
-  empty.style.display = 'none';
-  list.style.display = 'block';
-  list.innerHTML = '<div style="padding:2rem;text-align:center;color:#9880bb">⏳ Cargando pedidos...</div>';
-  
-  // Cargar SOLO de Firebase
-  db.collection("pedidos")
-    .orderBy("id", "desc")
-    .limit(200)
-    .get()
-    .then((querySnapshot) => {
-      const orders = [];
-      
-      querySnapshot.forEach((doc) => {
-        orders.push(doc.data());
-      });
-      
-      console.log('✅ Pedidos cargados de Firebase:', orders.length);
-      
-      if(orders.length === 0){
-        console.log('⚠️ No hay pedidos');
-        empty.style.display = 'block';
-        list.style.display = 'none';
-        return;
-      }
-      
-      empty.style.display = 'none';
-      list.style.display = 'block';
-      
-      list.innerHTML = orders.map(order => `
-        <div style="background:rgba(155,120,220,0.07);border:1px solid rgba(155,120,220,0.15);border-radius:12px;padding:1rem;margin-bottom:1rem">
-          <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:0.8rem;flex-wrap:wrap;gap:0.8rem">
-            <div>
-              <div style="font-size:0.75rem;color:#9880bb;text-transform:uppercase;letter-spacing:1px;font-weight:600">Pedido #${order.id}</div>
-              <div style="font-size:0.9rem;color:#7c5cbf;font-weight:600;margin-top:0.3rem">${order.cliente}</div>
-            </div>
-            <div style="font-size:0.75rem;color:#9880bb;text-align:right">
-              <div>${order.date}</div>
-              <div style="color:#27ae60;margin-top:0.2rem;font-weight:600">✓ ${order.status}</div>
-            </div>
-          </div>
-          
-          <div style="border-top:1px solid rgba(155,120,220,0.15);padding-top:0.8rem;margin-bottom:0.8rem">
-            <div style="font-size:0.78rem;color:#2d2040;line-height:1.8">
-              <div><strong>Teléfono:</strong> ${order.tel}</div>
-              <div><strong>Entrega:</strong> ${order.entrega === 'domicilio' ? '🚚 Domicilio' : '🏪 Recoger en tienda'}</div>
-              <div><strong>Pago:</strong> ${order.pago === 'efectivo' ? '💵 Efectivo' : order.pago === 'transferencia' ? '🏦 Transferencia' : '💳 Tarjeta'}</div>
-            </div>
-          </div>
-          
-          <div style="border-top:1px solid rgba(155,120,220,0.15);padding-top:0.8rem;margin-bottom:0.8rem">
-            <div style="font-size:0.75rem;color:#9880bb;font-weight:600;margin-bottom:0.5rem">PRODUCTOS (${order.items?.length || 0})</div>
-            ${(order.items || []).map(item => `
-              <div style="font-size:0.78rem;color:#2d2040;display:flex;justify-content:space-between;margin-bottom:0.3rem;padding-left:0.5rem">
-                <span>• ${item.name} x${item.qty}</span>
-                <span style="font-weight:600">$${item.subtotal.toFixed(2)}</span>
-              </div>
-            `).join('')}
-          </div>
-          
-          <div style="border-top:1px solid rgba(155,120,220,0.15);padding-top:0.8rem;display:flex;justify-content:space-between;align-items:center">
-            <div style="font-size:0.75rem;color:#9880bb;text-transform:uppercase;letter-spacing:1px;font-weight:600">Total</div>
-            <div style="font-size:1.1rem;color:#7c5cbf;font-weight:600">$${order.total.toFixed(2)}</div>
-          </div>
-        </div>
-      `).join('');
-    })
-    .catch((error) => {
-      console.error('❌ Error cargando de Firebase:', error);
-      showToast('❌ Error cargando pedidos: ' + error.message);
+  function mostrarPedidos(orders){
+    const empty = document.getElementById('adminOrdersEmpty');
+    const list = document.getElementById('adminOrdersList');
+    
+    if(orders.length === 0){
+      console.log('⚠️ No hay pedidos para mostrar');
       empty.style.display = 'block';
       list.style.display = 'none';
-    });
+      return;
+    }
+    
+    console.log('✅ Mostrando', orders.length, 'pedidos');
+    
+    empty.style.display = 'none';
+    list.style.display = 'block';
+    
+    list.innerHTML = orders.reverse().map(order => `
+      <div style="background:rgba(155,120,220,0.07);border:1px solid rgba(155,120,220,0.15);border-radius:12px;padding:1rem;margin-bottom:1rem">
+        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:0.8rem;flex-wrap:wrap;gap:0.8rem">
+          <div>
+            <div style="font-size:0.75rem;color:#9880bb;text-transform:uppercase;letter-spacing:1px;font-weight:600">Pedido #${order.id}</div>
+            <div style="font-size:0.9rem;color:#7c5cbf;font-weight:600;margin-top:0.3rem">${order.cliente}</div>
+          </div>
+          <div style="font-size:0.75rem;color:#9880bb;text-align:right">
+            <div>${order.date}</div>
+            <div style="color:#27ae60;margin-top:0.2rem;font-weight:600">✓ ${order.status}</div>
+          </div>
+        </div>
+        
+        <div style="border-top:1px solid rgba(155,120,220,0.15);padding-top:0.8rem;margin-bottom:0.8rem">
+          <div style="font-size:0.78rem;color:#2d2040;line-height:1.8">
+            <div><strong>Teléfono:</strong> ${order.tel}</div>
+            <div><strong>Entrega:</strong> ${order.entrega === 'domicilio' ? '🚚 Domicilio' : '🏪 Recoger en tienda'}</div>
+            <div><strong>Pago:</strong> ${order.pago === 'efectivo' ? '💵 Efectivo' : order.pago === 'transferencia' ? '🏦 Transferencia bancaria' : '💳 Tarjeta (contra entrega)'}</div>
+          </div>
+        </div>
+        
+        <div style="border-top:1px solid rgba(155,120,220,0.15);padding-top:0.8rem;margin-bottom:0.8rem">
+          <div style="font-size:0.75rem;color:#9880bb;font-weight:600;margin-bottom:0.5rem">PRODUCTOS (${order.items?.length || 0})</div>
+          ${(order.items || []).map(item => `
+            <div style="font-size:0.78rem;color:#2d2040;display:flex;justify-content:space-between;margin-bottom:0.3rem;padding-left:0.5rem">
+              <span>• ${item.name} x${item.qty}</span>
+              <span style="font-weight:600">$${item.subtotal.toFixed(2)}</span>
+            </div>
+          `).join('')}
+        </div>
+        
+        <div style="border-top:1px solid rgba(155,120,220,0.15);padding-top:0.8rem;display:flex;justify-content:space-between;align-items:center">
+          <div style="font-size:0.75rem;color:#9880bb;text-transform:uppercase;letter-spacing:1px;font-weight:600">Total</div>
+          <div style="font-size:1.1rem;color:#7c5cbf;font-weight:600">$${order.total.toFixed(2)}</div>
+        </div>
+      </div>
+    `).join('');
+  }
 }
 
 function exportOrdersCSV(){
-  if(!window.db){
-    showToast('❌ Error: Firebase no inicializado');
+  const orders = JSON.parse(localStorage.getItem('laqueeeslinda_orders')) || [];
+  
+  if(orders.length === 0){
+    showToast('⚠️ No hay pedidos para exportar');
     return;
   }
   
-  showToast('⏳ Generando CSV...');
+  // Crear encabezados
+  let csv = 'ID,Fecha,Cliente,Teléfono,Entrega,Pago,Productos,Cantidades,Total\n';
   
-  db.collection("pedidos")
-    .orderBy("id", "desc")
-    .limit(500)
-    .get()
-    .then((querySnapshot) => {
-      const orders = [];
-      
-      querySnapshot.forEach((doc) => {
-        orders.push(doc.data());
-      });
-      
-      if(orders.length === 0){
-        showToast('⚠️ No hay pedidos para exportar');
-        return;
-      }
-      
-      // Crear encabezados
-      let csv = 'ID,Fecha,Cliente,Teléfono,Entrega,Pago,Productos,Cantidades,Total\n';
-      
-      // Agregar datos
-      orders.forEach(order => {
-        const productos = (order.items || []).map(i => i.name).join('; ');
-        const cantidades = (order.items || []).map(i => i.qty).join('; ');
-        csv += `${order.id},"${order.date}","${order.cliente}","${order.tel}","${order.entrega}","${order.pago}","${productos}","${cantidades}",${order.total.toFixed(2)}\n`;
-      });
-      
-      // Descargar
-      const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `pedidos-${new Date().toISOString().slice(0,10)}.csv`;
-      link.click();
-      
-      showToast('✅ Pedidos exportados como CSV');
-    })
-    .catch((error) => {
-      console.error('❌ Error exportando CSV:', error);
-      showToast('❌ Error: ' + error.message);
-    });
+  // Agregar datos
+  orders.forEach(order => {
+    const productos = order.items.map(i => i.name).join('; ');
+    const cantidades = order.items.map(i => i.qty).join('; ');
+    csv += `${order.id},"${order.date}","${order.cliente}","${order.tel}","${order.entrega}","${order.pago}","${productos}","${cantidades}",${order.total.toFixed(2)}\n`;
+  });
+  
+  // Descargar
+  const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `pedidos-${new Date().toISOString().slice(0,10)}.csv`;
+  link.click();
+  
+  showToast('✅ Pedidos exportados como CSV');
 }
 
 // ---- STOCK EDITOR ----
@@ -2926,135 +3009,6 @@ renderProducts();
     <div id="productDetailContent"></div>
   </div>
 </div>
-
-<!-- ========================================
-     FIREBASE INITIALIZATION
-     ======================================== -->
-<script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore.js"></script>
-
-<script>
-  // Tu configuración Firebase
-  const firebaseConfig = {
-    apiKey: "AIzaSyAk9vAuVFnCenhUDKvHN6UxQb2m2z6SvSQ",
-    authDomain: "laqueeslinda.firebaseapp.com",
-    projectId: "laqueeslinda",
-    storageBucket: "laqueeslinda.firebasestorage.app",
-    messagingSenderId: "133009470029",
-    appId: "1:133009470029:web:a9af6cb769e68c2fe4a204"
-  };
-
-  // Inicializar Firebase
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.firestore();
-
-  console.log('✅ Firebase inicializado correctamente');
-
-  // ========================================
-  // GUARDAR PEDIDO EN FIREBASE
-  // ========================================
-  function guardarPedidoEnFirebase(order) {
-    db.collection("pedidos").add(order)
-      .then((docRef) => {
-        console.log('✅ Pedido guardado en Firebase:', docRef.id);
-        guardarLocalmente(order);
-        mostrarExito();
-      })
-      .catch((error) => {
-        console.warn('⚠️ Error Firebase:', error.message);
-        guardarLocalmente(order);
-        mostrarExito();
-      });
-  }
-
-  // ========================================
-  // CARGAR PEDIDOS DE FIREBASE
-  // ========================================
-  function cargarPedidosDeFirebase() {
-    console.log('📋 Cargando pedidos de Firebase...');
-    
-    db.collection("pedidos")
-      .orderBy("id", "desc")
-      .limit(100)
-      .get()
-      .then((querySnapshot) => {
-        const orders = [];
-        querySnapshot.forEach((doc) => {
-          orders.push(doc.data());
-        });
-        console.log('✅ Pedidos de Firebase:', orders.length);
-        mostrarPedidosEnAdmin(orders);
-      })
-      .catch((error) => {
-        console.warn('⚠️ Error Firebase:', error.message);
-        cargarPedidosLocales();
-      });
-  }
-
-  // ========================================
-  // CARGAR PEDIDOS DEL LOCALSTORAGE
-  // ========================================
-  function cargarPedidosLocales() {
-    const orders = JSON.parse(localStorage.getItem('laqueeeslinda_orders')) || [];
-    console.log('📋 Pedidos locales:', orders.length);
-    mostrarPedidosEnAdmin(orders);
-  }
-
-  // ========================================
-  // MOSTRAR PEDIDOS EN ADMIN
-  // ========================================
-  function mostrarPedidosEnAdmin(orders) {
-    const empty = document.getElementById('adminOrdersEmpty');
-    const list = document.getElementById('adminOrdersList');
-    
-    if (orders.length === 0) {
-      empty.style.display = 'block';
-      list.style.display = 'none';
-      return;
-    }
-    
-    empty.style.display = 'none';
-    list.style.display = 'block';
-    
-    list.innerHTML = orders.map(order => `
-      <div style="background:rgba(155,120,220,0.07);border:1px solid rgba(155,120,220,0.15);border-radius:12px;padding:1rem;margin-bottom:1rem">
-        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:0.8rem;flex-wrap:wrap;gap:0.8rem">
-          <div>
-            <div style="font-size:0.75rem;color:#9880bb;text-transform:uppercase;letter-spacing:1px;font-weight:600">Pedido #${order.id}</div>
-            <div style="font-size:0.9rem;color:#7c5cbf;font-weight:600;margin-top:0.3rem">${order.cliente}</div>
-          </div>
-          <div style="font-size:0.75rem;color:#9880bb;text-align:right">
-            <div>${order.date}</div>
-            <div style="color:#27ae60;margin-top:0.2rem;font-weight:600">✓ ${order.status}</div>
-          </div>
-        </div>
-        
-        <div style="border-top:1px solid rgba(155,120,220,0.15);padding-top:0.8rem;margin-bottom:0.8rem">
-          <div style="font-size:0.78rem;color:#2d2040;line-height:1.8">
-            <div><strong>Teléfono:</strong> ${order.tel}</div>
-            <div><strong>Entrega:</strong> ${order.entrega === 'domicilio' ? '🚚 Domicilio' : '🏪 Recoger en tienda'}</div>
-            <div><strong>Pago:</strong> ${order.pago === 'efectivo' ? '💵 Efectivo' : order.pago === 'transferencia' ? '🏦 Transferencia' : '💳 Tarjeta'}</div>
-          </div>
-        </div>
-        
-        <div style="border-top:1px solid rgba(155,120,220,0.15);padding-top:0.8rem;margin-bottom:0.8rem">
-          <div style="font-size:0.75rem;color:#9880bb;font-weight:600;margin-bottom:0.5rem">PRODUCTOS (${order.items?.length || 0})</div>
-          ${(order.items || []).map(item => `
-            <div style="font-size:0.78rem;color:#2d2040;display:flex;justify-content:space-between;margin-bottom:0.3rem;padding-left:0.5rem">
-              <span>• ${item.name} x${item.qty}</span>
-              <span style="font-weight:600">$${item.subtotal.toFixed(2)}</span>
-            </div>
-          `).join('')}
-        </div>
-        
-        <div style="border-top:1px solid rgba(155,120,220,0.15);padding-top:0.8rem;display:flex;justify-content:space-between;align-items:center">
-          <div style="font-size:0.75rem;color:#9880bb;text-transform:uppercase;letter-spacing:1px;font-weight:600">Total</div>
-          <div style="font-size:1.1rem;color:#7c5cbf;font-weight:600">$${order.total.toFixed(2)}</div>
-        </div>
-      </div>
-    `).join('');
-  }
-</script>
 
 </body>
 </html>
