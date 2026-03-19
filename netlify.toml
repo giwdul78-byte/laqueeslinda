@@ -1,9 +1,5 @@
 [build]
   functions = "netlify/functions"
-  command = "npm install"
-
-[functions]
-  timeout = 10
 
 [[redirects]]
   from = "/*"
