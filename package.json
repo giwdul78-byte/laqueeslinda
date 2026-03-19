@@ -1,0 +1,13 @@
+{
+  "name": "la-que-es-linda",
+  "version": "1.0.0",
+  "description": "Tienda online La Que Es Linda",
+  "main": "index.html",
+  "scripts": {
+    "start": "echo 'Static site - no build needed'"
+  },
+  "keywords": ["tienda", "belleza", "ecommerce"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {}
+}
