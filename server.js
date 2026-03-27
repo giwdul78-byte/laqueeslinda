@@ -26,9 +26,11 @@ const imagenesDir = path.join(datosDir, 'imagenes');
 // ========================================
 // RUTA PRINCIPAL
 // ========================================
+app.use(express.static(path.join(__dirname, 'public')));
+
 app.get('/', (req, res) => {
-  res.json({ 
-    mensaje: '✅ Servidor funcionando',
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
     endpoints: {
       guardarPedido: 'POST /api/pedidos',
       obtenerPedidos: 'GET /api/pedidos',
@@ -236,3 +238,4 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
